@@ -12,14 +12,21 @@ on:
 permissions:
   contents: read
 
+# Only one watcher at a time. A cron that fires while a run is active becomes
+# a PENDING run that starts the instant the active one ends - a seamless
+# handoff with no gap, and no duplicate alerts from overlapping jobs.
+concurrency:
+  group: seat-watch
+  cancel-in-progress: false
+
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - name: Poll OSCAR for open seats
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          RUN_MINUTES: '55'
+          RUN_MINUTES: '330'
         run: python3 watch_seats_ci.py
