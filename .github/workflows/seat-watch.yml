@@ -2,9 +2,11 @@ name: seat-watch
 
 on:
   schedule:
-    # Every 30 min. Each run loops for 35 min, so runs deliberately overlap -
-    # that covers GitHub's scheduler delays and leaves no blind gaps.
-    - cron: '*/30 * * * *'
+    # Off-peak minutes: GitHub's scheduler is most congested at :00 and :30,
+    # and delays there can exceed 15 min. Each run loops 55 min against a
+    # 30-min cadence, so consecutive runs overlap heavily - a late cron
+    # cannot open a gap.
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -13,11 +15,11 @@ permissions:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
       - name: Poll OSCAR for open seats
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          RUN_MINUTES: '35'
+          RUN_MINUTES: '55'
         run: python3 watch_seats_ci.py

@@ -135,7 +135,7 @@ def selftest():
     return 0
 
 
-def github_seatwatch_healthy(max_age_min=45):
+def github_seatwatch_healthy(max_age_min=75):
     """True if seat-watch is running now, or ran recently. Returns (ok, detail)."""
     token = os.environ.get("GITHUB_TOKEN", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")

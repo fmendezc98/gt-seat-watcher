@@ -1,7 +1,7 @@
 name: watchdog
 on:
   schedule:
-    - cron: '0 * * * *'   # hourly
+    - cron: '17 * * * *'  # hourly, off-peak minute
   workflow_dispatch:
 permissions:
   contents: read
