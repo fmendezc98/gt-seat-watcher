@@ -102,6 +102,38 @@ def notify(title, message, priority="default", tags="bell", click=None):
         return False
 
 
+def selftest():
+    """One fetch per CRN + one push. Exits nonzero if anything is unreachable."""
+    if not TOPIC:
+        log("FATAL: NTFY_TOPIC not set")
+        return 1
+    lines, ok = [], True
+    for c in COURSES:
+        try:
+            avail, actual, mx = fetch_seats(c["crn"])
+            log(f"  OK  {c['name']} CRN {c['crn']}: {avail} open ({actual}/{mx})")
+            lines.append(f"{c['name']}: {avail} open ({actual}/{mx})")
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            log(f"  FAIL {c['name']} CRN {c['crn']}: {exc}")
+            lines.append(f"{c['name']}: UNREACHABLE - {exc}")
+    if not ok:
+        log("SELFTEST FAILED: OSCAR unreachable from this runner.")
+        notify("Cloud watcher SELFTEST FAILED",
+               "GitHub runner could not reach OSCAR:\n" + "\n".join(lines),
+               priority="high", tags="warning")
+        return 1
+    if not notify("Cloud watcher verified",
+                  "Running on GitHub Actions - no laptop needed.\n\n"
+                  + "\n".join(lines)
+                  + "\n\nPolling every ~2 min until Fri Aug 28, 11:59pm ET.",
+                  priority="default", tags="white_check_mark",
+                  click=REGISTER_URL):
+        return 1
+    log("SELFTEST PASSED.")
+    return 0
+
+
 def main():
     if not TOPIC:
         log("FATAL: NTFY_TOPIC is not set. Add it as a repository secret.")
@@ -173,4 +205,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+        sys.exit(selftest())
     sys.exit(main())
