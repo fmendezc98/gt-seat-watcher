@@ -28,6 +28,7 @@ COURSES = [
     {"crn": "87967", "name": "MGT 6311 - Digital Marketing (O01)"},
     {"crn": "87912", "name": "CS 6603 - AI Ethics and Society (O01)"},
     {"crn": "88875", "name": "CS 8803 - Intro to Computer Law (O15)"},
+    {"crn": "83929", "name": "CS 6300 - Software Dev Process (O01)"},
 ]
 
 EASTERN = ZoneInfo("America/New_York")

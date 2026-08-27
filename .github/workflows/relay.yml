@@ -1,0 +1,99 @@
+name: relay
+
+# Cron-free coverage. GitHub caps a JOB at 6h but a workflow RUN at 35 days,
+# so this chains sequential legs: each polls for 5.5h then hands to the next.
+# One manual dispatch covers the entire watch window.
+# `if: always()` means a crashed leg does not break the chain.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seat-watch
+  cancel-in-progress: false
+
+jobs:
+  leg1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
+
+  leg2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    needs: leg1
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
+
+  leg3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    needs: leg2
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
+
+  leg4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    needs: leg3
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
+
+  leg5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    needs: leg4
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
+
+  leg6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    needs: leg5
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
+
+  leg7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    needs: leg6
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: '330'
+        run: python3 watch_seats_ci.py
