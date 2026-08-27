@@ -3,7 +3,9 @@ name: relay
 # Cron-free coverage. GitHub caps a JOB at 6h but a workflow RUN at 35 days,
 # so this chains sequential legs: each polls for 5.5h then hands to the next.
 # One manual dispatch covers the entire watch window.
-# `if: always()` means a crashed leg does not break the chain.
+# `if: !cancelled()` chains past a CRASHED leg but still honours an
+# explicit cancel - `always()` would ignore cancellation and make the
+# chain impossible to stop.
 
 on:
   workflow_dispatch:
@@ -31,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     needs: leg1
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - env:
@@ -44,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     needs: leg2
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - env:
@@ -57,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     needs: leg3
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - env:
@@ -70,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     needs: leg4
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - env:
@@ -83,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     needs: leg5
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - env:
@@ -96,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     needs: leg6
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - env:
