@@ -1,0 +1,16 @@
+name: heartbeat
+on:
+  schedule:
+    - cron: '0 * * * *'   # top of every hour
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python3 watch_seats_ci.py --heartbeat

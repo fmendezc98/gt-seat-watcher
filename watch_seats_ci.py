@@ -134,6 +134,58 @@ def selftest():
     return 0
 
 
+def heartbeat():
+    """Hourly liveness ping. Also acts as a second, independent seat check:
+    if it spots an open seat it fires the urgent alert too."""
+    if not TOPIC:
+        log("FATAL: NTFY_TOPIC not set")
+        return 1
+
+    now = dt.datetime.now(EASTERN)
+    if now >= DEADLINE:
+        log(f"Past deadline ({DEADLINE:%Y-%m-%d %H:%M %Z}). No heartbeat sent.")
+        return 0
+
+    lines, ok, open_now = [], True, []
+    for c in COURSES:
+        try:
+            avail, actual, mx = fetch_seats(c["crn"])
+            log(f"  OK  {c['name']} CRN {c['crn']}: {avail} open ({actual}/{mx})")
+            lines.append(f"{c['name']}: {avail} open ({actual}/{mx})")
+            if avail > 0:
+                open_now.append((c, avail, actual, mx))
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            log(f"  FAIL {c['name']} CRN {c['crn']}: {exc}")
+            lines.append(f"{c['name']}: UNREACHABLE")
+
+    # An open seat outranks the heartbeat - alert loudly, immediately.
+    for c, avail, actual, mx in open_now:
+        notify(
+            f"SEAT OPEN: {c['name']}",
+            f"{c['name']}\n"
+            f"CRN {c['crn']} - Fall 2026 (term 202608)\n"
+            f"{avail} seat(s) available ({actual}/{mx} filled).\n\n"
+            f"REGISTER IMMEDIATELY - this can close again in minutes.\n"
+            f"{REGISTER_URL}",
+            priority="urgent", tags="rotating_light,books", click=REGISTER_URL)
+
+    if not ok:
+        notify("Heartbeat: OSCAR unreachable",
+               "The hourly check could not reach OSCAR:\n" + "\n".join(lines),
+               priority="high", tags="warning")
+        return 1
+
+    left = DEADLINE - now
+    hrs = int(left.total_seconds() // 3600)
+    notify(f"Heartbeat OK - {hrs}h left",
+           "Watcher alive on GitHub Actions.\n\n" + "\n".join(lines)
+           + f"\n\nStops {DEADLINE:%a %b %d, %I:%M%p} ET.",
+           priority="low", tags="green_heart")
+    log("HEARTBEAT OK.")
+    return 0
+
+
 def main():
     if not TOPIC:
         log("FATAL: NTFY_TOPIC is not set. Add it as a repository secret.")
@@ -207,4 +259,6 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
         sys.exit(selftest())
+    if len(sys.argv) > 1 and sys.argv[1] == "--heartbeat":
+        sys.exit(heartbeat())
     sys.exit(main())
