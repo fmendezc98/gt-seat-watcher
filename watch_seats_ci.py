@@ -12,6 +12,7 @@ Config via env:
 """
 
 import datetime as dt
+import json
 import os
 import random
 import re
@@ -134,19 +135,59 @@ def selftest():
     return 0
 
 
-def heartbeat():
-    """Hourly liveness ping. Also acts as a second, independent seat check:
-    if it spots an open seat it fires the urgent alert too."""
+def github_seatwatch_healthy(max_age_min=45):
+    """True if seat-watch is running now, or ran recently. Returns (ok, detail)."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not token or not repo:
+        return None, "no GITHUB_TOKEN/GITHUB_REPOSITORY - skipped"
+    url = (f"https://api.github.com/repos/{repo}/actions/workflows/"
+           f"seat-watch.yml/runs?per_page=10")
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "seat-watchdog",
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.load(resp)
+
+    now = dt.datetime.now(dt.timezone.utc)
+    newest = None
+    for run in data.get("workflow_runs", []):
+        if run["status"] in ("in_progress", "queued"):
+            return True, f"seat-watch {run['status']} (run {run['id']})"
+        created = dt.datetime.fromisoformat(
+            run["created_at"].replace("Z", "+00:00"))
+        if newest is None or created > newest[0]:
+            newest = (created, run)
+
+    if newest is None:
+        return False, "no seat-watch runs found at all"
+    age_min = (now - newest[0]).total_seconds() / 60
+    run = newest[1]
+    detail = (f"last seat-watch run {age_min:.0f} min ago "
+              f"({run['status']}/{run['conclusion']})")
+    if age_min > max_age_min:
+        return False, detail
+    # Recent but broken is still broken - a crash-looping job polls nothing.
+    if run["conclusion"] in ("failure", "cancelled", "timed_out",
+                             "startup_failure"):
+        return False, detail + " - last run did not succeed"
+    return True, detail
+
+
+def watchdog():
+    """Hourly check. SILENT when healthy - pushes only on problems or open seats."""
     if not TOPIC:
         log("FATAL: NTFY_TOPIC not set")
         return 1
 
     now = dt.datetime.now(EASTERN)
     if now >= DEADLINE:
-        log(f"Past deadline ({DEADLINE:%Y-%m-%d %H:%M %Z}). No heartbeat sent.")
+        log(f"Past deadline ({DEADLINE:%Y-%m-%d %H:%M %Z}). Nothing to do.")
         return 0
 
-    lines, ok, open_now = [], True, []
+    problems, lines, open_now = [], [], []
     for c in COURSES:
         try:
             avail, actual, mx = fetch_seats(c["crn"])
@@ -155,11 +196,11 @@ def heartbeat():
             if avail > 0:
                 open_now.append((c, avail, actual, mx))
         except Exception as exc:  # noqa: BLE001
-            ok = False
             log(f"  FAIL {c['name']} CRN {c['crn']}: {exc}")
             lines.append(f"{c['name']}: UNREACHABLE")
+            problems.append(f"OSCAR unreachable for CRN {c['crn']}")
 
-    # An open seat outranks the heartbeat - alert loudly, immediately.
+    # An open seat always gets through, watchdog or not.
     for c, avail, actual, mx in open_now:
         notify(
             f"SEAT OPEN: {c['name']}",
@@ -170,19 +211,26 @@ def heartbeat():
             f"{REGISTER_URL}",
             priority="urgent", tags="rotating_light,books", click=REGISTER_URL)
 
-    if not ok:
-        notify("Heartbeat: OSCAR unreachable",
-               "The hourly check could not reach OSCAR:\n" + "\n".join(lines),
+    try:
+        healthy, detail = github_seatwatch_healthy()
+        log(f"  seat-watch health: {healthy} - {detail}")
+        if healthy is False:
+            problems.append(f"seat-watch not running: {detail}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  ?? could not check seat-watch health: {exc}")
+
+    if problems:
+        notify("Seat watcher is DOWN",
+               "Problems detected:\n- " + "\n- ".join(problems)
+               + "\n\nLatest readings:\n" + "\n".join(lines)
+               + "\n\nRestart:\n"
+               "gh workflow run seat-watch.yml --repo " 
+               + os.environ.get("GITHUB_REPOSITORY", "<repo>"),
                priority="high", tags="warning")
+        log("WATCHDOG: PROBLEMS REPORTED.")
         return 1
 
-    left = DEADLINE - now
-    hrs = int(left.total_seconds() // 3600)
-    notify(f"Heartbeat OK - {hrs}h left",
-           "Watcher alive on GitHub Actions.\n\n" + "\n".join(lines)
-           + f"\n\nStops {DEADLINE:%a %b %d, %I:%M%p} ET.",
-           priority="low", tags="green_heart")
-    log("HEARTBEAT OK.")
+    log("WATCHDOG OK (silent - no notification sent).")
     return 0
 
 
@@ -259,6 +307,6 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
         sys.exit(selftest())
-    if len(sys.argv) > 1 and sys.argv[1] == "--heartbeat":
-        sys.exit(heartbeat())
+    if len(sys.argv) > 1 and sys.argv[1] == "--watchdog":
+        sys.exit(watchdog())
     sys.exit(main())

@@ -24,6 +24,18 @@ gh workflow run seat-watch.yml     # start immediately
 gh run watch                       # follow it
 ```
 
+## Alerts
+
+You are notified **only when something needs you**:
+
+- `SEAT OPEN: <course>` - urgent (prio 5), repeats every 10 min while open
+- `Seat watcher is DOWN` - hourly watchdog found a problem
+- `Closed again: <course>` - low priority, seat was taken
+
+No "still alive" pings. The `watchdog` workflow runs hourly and stays
+**silent** unless seat-watch has stopped, is crash-looping, or OSCAR is
+unreachable.
+
 ## Stopping early
 
 ```sh
