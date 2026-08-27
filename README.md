@@ -37,6 +37,20 @@ No "still alive" pings. The `watchdog` workflow runs hourly and stays
 **silent** unless seat-watch has stopped, is crash-looping, or OSCAR is
 unreachable.
 
+## External down-detection (healthchecks.io)
+
+Each polling sweep pings `HEALTHCHECK_URL`. If pings stop - run cancelled,
+GitHub outage, anything - healthchecks.io alerts independently of GitHub.
+Unset the secret and pinging is a silent no-op.
+
+    /start  leg begins
+    /       healthy sweep
+    /fail   sweep failed (alerts immediately)
+
+NOTE: when the watch ends Fri 11:59pm ET the pings stop on purpose, so
+healthchecks.io will report it down. That final alert is expected - it
+means the watch finished. Pause or delete the check afterwards.
+
 ## Stopping early
 
 ```sh

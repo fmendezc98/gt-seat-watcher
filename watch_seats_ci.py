@@ -47,6 +47,9 @@ REGISTER_URL = ("https://registration.banner.gatech.edu/StudentRegistrationSsb"
 TOPIC = os.environ.get("NTFY_TOPIC", "").strip()
 RUN_MINUTES = int(os.environ.get("RUN_MINUTES", "35"))
 
+# healthchecks.io dead-man's switch. Optional: unset = pinging disabled.
+HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "").strip().rstrip("/")
+
 
 def log(msg):
     print(f"[{dt.datetime.now(EASTERN):%Y-%m-%d %H:%M:%S %Z}] {msg}", flush=True)
@@ -134,6 +137,21 @@ def selftest():
         return 1
     log("SELFTEST PASSED.")
     return 0
+
+
+def hc_ping(suffix="", quiet=True):
+    """Ping healthchecks.io. Never raises - monitoring must not break polling."""
+    if not HEALTHCHECK_URL:
+        return
+    try:
+        req = urllib.request.Request(HEALTHCHECK_URL + suffix,
+                                     headers={"User-Agent": "gt-seat-watcher"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        if not quiet:
+            log(f"  -> healthcheck ping{suffix or ' (ok)'}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  !! healthcheck ping{suffix} failed: {exc}")
 
 
 def github_seatwatch_healthy(max_age_min=360):
@@ -251,14 +269,17 @@ def main():
 
     state = {c["crn"]: {"open": False, "last_alert": 0.0} for c in COURSES}
     failures = 0
+    hc_ping("/start", quiet=False)
 
     while dt.datetime.now(EASTERN) < stop_at:
+        sweep_ok = True
         for course in COURSES:
             crn, name = course["crn"], course["name"]
             try:
                 avail, actual, mx = fetch_seats(crn)
             except Exception as exc:  # noqa: BLE001
                 failures += 1
+                sweep_ok = False
                 log(f"  ?? {name} CRN {crn}: {exc}")
                 continue
             failures = 0
@@ -294,6 +315,11 @@ def main():
                    "OSCAR may be down or blocking the runner.",
                    priority="high", tags="warning")
             failures = 0
+
+        # Heartbeat to the external dead-man's switch. A failed sweep pings
+        # /fail so healthchecks.io alerts immediately rather than waiting for
+        # the grace period to lapse.
+        hc_ping("" if sweep_ok else "/fail")
 
         nap = POLL_SECONDS + random.randint(-JITTER_SECONDS, JITTER_SECONDS)
         left = (stop_at - dt.datetime.now(EASTERN)).total_seconds()
