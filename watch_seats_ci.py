@@ -35,8 +35,8 @@ EASTERN = ZoneInfo("America/New_York")
 # Stop at end of Fri Aug 28, 2026 Eastern (Georgia Tech local time).
 DEADLINE = dt.datetime(2026, 8, 29, 0, 0, 0, tzinfo=EASTERN)
 
-POLL_SECONDS = 120
-JITTER_SECONDS = 15
+POLL_SECONDS = 60   # seats observed open for only ~2 min
+JITTER_SECONDS = 10
 REOPEN_REMINDER_SECONDS = 600
 
 BANNER = ("https://registration.banner.gatech.edu/StudentRegistrationSsb"
@@ -269,6 +269,7 @@ def main():
 
     state = {c["crn"]: {"open": False, "last_alert": 0.0} for c in COURSES}
     failures = 0
+    bad_sweeps = 0
     hc_ping("/start", quiet=False)
 
     while dt.datetime.now(EASTERN) < stop_at:
@@ -316,10 +317,17 @@ def main():
                    priority="high", tags="warning")
             failures = 0
 
-        # Heartbeat to the external dead-man's switch. A failed sweep pings
-        # /fail so healthchecks.io alerts immediately rather than waiting for
-        # the grace period to lapse.
-        hc_ping("" if sweep_ok else "/fail")
+        # Heartbeat to the external dead-man's switch. One transient fetch
+        # error is not an outage - only escalate to /fail after 3 consecutive
+        # bad sweeps, otherwise stay silent and let the grace period judge.
+        if sweep_ok:
+            bad_sweeps = 0
+            hc_ping()
+        else:
+            bad_sweeps += 1
+            log(f"  (bad sweep {bad_sweeps}/3 - withholding healthcheck ping)")
+            if bad_sweeps >= 3:
+                hc_ping("/fail", quiet=False)
 
         nap = POLL_SECONDS + random.randint(-JITTER_SECONDS, JITTER_SECONDS)
         left = (stop_at - dt.datetime.now(EASTERN)).total_seconds()
