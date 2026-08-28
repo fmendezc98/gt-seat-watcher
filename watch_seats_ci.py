@@ -24,10 +24,10 @@ from zoneinfo import ZoneInfo
 
 TERM = "202608"  # Fall 2026
 
+# Registered for CS 6603 on 2026-08-27; now watching only the two
+# alternatives to it. CS 8803 (CRN 88875) dropped at the same time.
 COURSES = [
     {"crn": "87967", "name": "MGT 6311 - Digital Marketing (O01)"},
-    {"crn": "87912", "name": "CS 6603 - AI Ethics and Society (O01)"},
-    {"crn": "88875", "name": "CS 8803 - Intro to Computer Law (O15)"},
     {"crn": "83929", "name": "CS 6300 - Software Dev Process (O01)"},
 ]
 
