@@ -106,3 +106,38 @@ jobs:
           HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
           RUN_MINUTES: '330'
         run: python3 watch_seats_ci.py
+
+  # Re-trigger this workflow so the watch continues until the deadline without
+  # manual re-runs. Dispatching with GITHUB_TOKEN is allowed. The new run waits
+  # in the `seat-watch` concurrency group until this run finishes.
+  restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: leg7
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Re-dispatch relay until the deadline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          REPO: ${{ github.repository }}
+          # Keep in sync with DEADLINE in watch_seats_ci.py (Eastern).
+          DEADLINE_ET: '2027-01-19 00:00'
+        run: |
+          now=$(date +%s)
+          end=$(TZ=America/New_York date -d "$DEADLINE_ET" +%s)
+          if [ "$now" -ge "$end" ]; then
+            echo "Past deadline ($DEADLINE_ET ET) - not restarting."
+            exit 0
+          fi
+          if ! gh workflow run relay.yml --repo "$REPO" --ref "${{ github.ref_name }}"; then
+            curl -s -H "Title: Seat watcher did NOT restart" -H "Priority: high" \
+              -H "Tags: warning" \
+              -d "The relay could not re-trigger itself. Start relay manually in the Actions tab." \
+              "https://ntfy.sh/$NTFY_TOPIC" >/dev/null
+            exit 1
+          fi
+          echo "Relay re-dispatched."
