@@ -22,18 +22,17 @@ import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
 
-TERM = "202608"  # Fall 2026
+TERM = "202702"  # Spring 2027
+TERM_LABEL = "Spring 2027"
 
-# Registered for CS 6603 on 2026-08-27; now watching only the two
-# alternatives to it. CS 8803 (CRN 88875) dropped at the same time.
 COURSES = [
-    {"crn": "87967", "name": "MGT 6311 - Digital Marketing (O01)"},
-    {"crn": "83929", "name": "CS 6300 - Software Dev Process (O01)"},
+    {"crn": "29737", "name": "CS 8803 O15 - Intro to Computer Law"},
+    {"crn": "28330", "name": "MGT 6311 - Digital Marketing (CS students)"},
 ]
 
 EASTERN = ZoneInfo("America/New_York")
-# Stop at end of Fri Aug 28, 2026 Eastern (Georgia Tech local time).
-DEADLINE = dt.datetime(2026, 8, 29, 0, 0, 0, tzinfo=EASTERN)
+# Stop at end of Mon Jan 18, 2027 Eastern (Georgia Tech local time).
+DEADLINE = dt.datetime(2027, 1, 19, 0, 0, 0, tzinfo=EASTERN)
 
 POLL_SECONDS = 60   # seats observed open for only ~2 min
 JITTER_SECONDS = 10
@@ -131,7 +130,8 @@ def selftest():
     if not notify("Cloud watcher verified",
                   "Running on GitHub Actions - no laptop needed.\n\n"
                   + "\n".join(lines)
-                  + "\n\nPolling every ~2 min until Fri Aug 28, 11:59pm ET.",
+                  + f"\n\nTerm {TERM} ({TERM_LABEL}). Polling every ~1 min until "
+                  f"end of {(DEADLINE - dt.timedelta(minutes=1)):%a %b %d, %Y} ET.",
                   priority="default", tags="white_check_mark",
                   click=REGISTER_URL):
         return 1
@@ -224,7 +224,7 @@ def watchdog():
         notify(
             f"SEAT OPEN: {c['name']}",
             f"{c['name']}\n"
-            f"CRN {c['crn']} - Fall 2026 (term 202608)\n"
+            f"CRN {c['crn']} - {TERM_LABEL} (term {TERM})\n"
             f"{avail} seat(s) available ({actual}/{mx} filled).\n\n"
             f"REGISTER IMMEDIATELY - this can close again in minutes.\n"
             f"{REGISTER_URL}",
@@ -294,7 +294,7 @@ def main():
                     notify(
                         f"{'SEAT OPEN' if first else 'STILL OPEN'}: {name}",
                         f"{name}\n"
-                        f"CRN {crn} - Fall 2026 (term 202608)\n"
+                        f"CRN {crn} - {TERM_LABEL} (term {TERM})\n"
                         f"{avail} seat(s) available ({actual}/{mx} filled).\n\n"
                         f"REGISTER IMMEDIATELY - this can close again in minutes.\n"
                         f"{REGISTER_URL}",
