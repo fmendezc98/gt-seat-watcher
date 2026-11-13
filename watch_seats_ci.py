@@ -27,7 +27,11 @@ TERM_LABEL = "Spring 2027"
 
 COURSES = [
     {"crn": "29737", "name": "CS 8803 O15 - Intro to Computer Law"},
-    {"crn": "28330", "name": "MGT 6311 - Digital Marketing (CS students)"},
+    # watch="waitlist": open seats are reserved for the waitlist until open
+    # enrollment, so only a free WAITLIST spot is actionable. Remove the
+    # key (or set "seats") once waitlists go away.
+    {"crn": "28330", "name": "MGT 6311 - Digital Marketing (CS students)",
+     "watch": "waitlist"},
 ]
 
 EASTERN = ZoneInfo("America/New_York")
@@ -62,6 +66,34 @@ MAX_RE = re.compile(
     r"Enrollment Maximum:\s*</span>\s*<span[^>]*>\s*(-?\d+)", re.I)
 
 
+def _field(label, html):
+    m = re.search(label + r":\s*</span>\s*<span[^>]*>\s*(-?\d+)", html, re.I)
+    return int(m.group(1)) if m else None
+
+
+def fetch_info(crn):
+    """Seat + waitlist numbers. Waitlist values are None if not in the page."""
+    seats, actual, mx = fetch_seats(crn)
+    html = _LAST_HTML.get(crn, "")
+    return {
+        "avail": seats, "actual": actual, "max": mx,
+        "wl_avail": _field(r"Waitlist Seats Available", html),
+        "wl_actual": _field(r"Waitlist Actual", html),
+        "wl_cap": _field(r"Waitlist Capacity", html),
+    }
+
+
+def course_open(course, info):
+    """(is_open, count, description) for what this course is being watched for."""
+    if course.get("watch") == "waitlist":
+        n = info["wl_avail"]
+        return (n is not None and n > 0), (n or 0), "waitlist spot(s)"
+    return info["avail"] > 0, info["avail"], "seat(s)"
+
+
+_LAST_HTML = {}
+
+
 def fetch_seats(crn):
     body = urllib.parse.urlencode(
         {"term": TERM, "courseReferenceNumber": crn}).encode()
@@ -77,6 +109,7 @@ def fetch_seats(crn):
         })
     with urllib.request.urlopen(req, timeout=30) as resp:
         html = resp.read().decode("utf-8", "replace")
+    _LAST_HTML[crn] = html
     m = SEATS_RE.search(html)
     if not m:
         raise ValueError(f"unparseable response for CRN {crn}: {html[:200]!r}")
@@ -209,11 +242,13 @@ def watchdog():
     problems, lines, open_now = [], [], []
     for c in COURSES:
         try:
-            avail, actual, mx = fetch_seats(c["crn"])
+            info = fetch_info(c["crn"])
+            avail, actual, mx = info["avail"], info["actual"], info["max"]
             log(f"  OK  {c['name']} CRN {c['crn']}: {avail} open ({actual}/{mx})")
             lines.append(f"{c['name']}: {avail} open ({actual}/{mx})")
-            if avail > 0:
-                open_now.append((c, avail, actual, mx))
+            is_open, count, what = course_open(c, info)
+            if is_open:
+                open_now.append((c, count, actual, mx))
         except Exception as exc:  # noqa: BLE001
             log(f"  FAIL {c['name']} CRN {c['crn']}: {exc}")
             lines.append(f"{c['name']}: UNREACHABLE")
@@ -225,8 +260,9 @@ def watchdog():
             f"SEAT OPEN: {c['name']}",
             f"{c['name']}\n"
             f"CRN {c['crn']} - {TERM_LABEL} (term {TERM})\n"
-            f"{avail} seat(s) available ({actual}/{mx} filled).\n\n"
-            f"REGISTER IMMEDIATELY - this can close again in minutes.\n"
+            f"{avail} {'waitlist spot(s)' if c.get('watch') == 'waitlist' else 'seat(s)'} "
+            f"available.\n\n"
+            f"ACT IMMEDIATELY - this can close again in minutes.\n"
             f"{REGISTER_URL}",
             priority="urgent", tags="rotating_light,books", click=REGISTER_URL)
 
@@ -277,7 +313,7 @@ def main():
         for course in COURSES:
             crn, name = course["crn"], course["name"]
             try:
-                avail, actual, mx = fetch_seats(crn)
+                info = fetch_info(crn)
             except Exception as exc:  # noqa: BLE001
                 failures += 1
                 sweep_ok = False
@@ -285,19 +321,39 @@ def main():
                 continue
             failures = 0
             st = state[crn]
-            log(f"  {name} CRN {crn}: {avail} open ({actual}/{mx})")
+            avail, actual, mx = info["avail"], info["actual"], info["max"]
+            log(f"  {name} CRN {crn}: {avail} open ({actual}/{mx}); "
+                f"waitlist {info['wl_actual']}/{info['wl_cap']} "
+                f"({info['wl_avail']} open)")
 
-            if avail > 0:
+            wl = course.get("watch") == "waitlist"
+            if wl and info["wl_avail"] is None and not st.get("warned"):
+                st["warned"] = True
+                notify(f"Waitlist not readable: {name}",
+                       f"{name} (CRN {crn}): OSCAR's page has no waitlist "
+                       "fields, so I can't tell when a waitlist spot opens. "
+                       "Check the waitlist manually.",
+                       priority="high", tags="warning")
+
+            is_open, count, what = course_open(course, info)
+            if is_open:
                 t = time.time()
                 first = not st["open"]
                 if first or t - st["last_alert"] >= REOPEN_REMINDER_SECONDS:
+                    if wl:
+                        detail = (f"{count} waitlist spot(s) available "
+                                  f"({info['wl_actual']}/{info['wl_cap']} "
+                                  "waitlist filled).\n\nJOIN THE WAITLIST NOW.")
+                        title = "WAITLIST OPEN" if first else "WAITLIST STILL OPEN"
+                    else:
+                        detail = (f"{count} seat(s) available ({actual}/{mx} "
+                                  "filled).\n\nREGISTER IMMEDIATELY - this "
+                                  "can close again in minutes.")
+                        title = "SEAT OPEN" if first else "STILL OPEN"
                     notify(
-                        f"{'SEAT OPEN' if first else 'STILL OPEN'}: {name}",
-                        f"{name}\n"
-                        f"CRN {crn} - {TERM_LABEL} (term {TERM})\n"
-                        f"{avail} seat(s) available ({actual}/{mx} filled).\n\n"
-                        f"REGISTER IMMEDIATELY - this can close again in minutes.\n"
-                        f"{REGISTER_URL}",
+                        f"{title}: {name}",
+                        f"{name}\nCRN {crn} - {TERM_LABEL} (term {TERM})\n"
+                        f"{detail}\n{REGISTER_URL}",
                         priority="urgent", tags="rotating_light,books",
                         click=REGISTER_URL)
                     st["last_alert"] = t
@@ -305,7 +361,7 @@ def main():
             else:
                 if st["open"]:
                     notify(f"Closed again: {name}",
-                           f"{name} (CRN {crn}) is back to 0 seats. Still watching.",
+                           f"{name} (CRN {crn}) is full again. Still watching.",
                            priority="low", tags="lock")
                 st["open"] = False
                 st["last_alert"] = 0.0
