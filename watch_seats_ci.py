@@ -41,6 +41,9 @@ DEADLINE = dt.datetime(2027, 1, 19, 0, 0, 0, tzinfo=EASTERN)
 POLL_SECONDS = 60   # seats observed open for only ~2 min
 JITTER_SECONDS = 10
 REOPEN_REMINDER_SECONDS = 600
+DOWN_ALERT_AFTER_FAILURES = 9   # consecutive failed fetches (~3 sweeps)
+DOWN_REMINDER_SECONDS = 2 * 3600
+MAX_DOWN_ALERTS = 2             # per outage
 
 BANNER = ("https://registration.banner.gatech.edu/StudentRegistrationSsb"
           "/ssb/searchResults/getEnrollmentInfo")
@@ -305,6 +308,9 @@ def main():
 
     state = {c["crn"]: {"open": False, "last_alert": 0.0} for c in COURSES}
     failures = 0
+    down_alerts = 0
+    last_down_alert = 0.0
+    down_notified = False
     bad_sweeps = 0
     hc_ping("/start", quiet=False)
 
@@ -320,6 +326,12 @@ def main():
                 log(f"  ?? {name} CRN {crn}: {exc}")
                 continue
             failures = 0
+            if down_notified:
+                notify("GT seat watcher is back",
+                       "OSCAR is reachable again. Watching normally.",
+                       priority="default", tags="white_check_mark")
+                down_notified = False
+                down_alerts = 0
             st = state[crn]
             avail, actual, mx = info["avail"], info["actual"], info["max"]
             log(f"  {name} CRN {crn}: {avail} open ({actual}/{mx}); "
@@ -366,12 +378,23 @@ def main():
                 st["open"] = False
                 st["last_alert"] = 0.0
 
-        if failures >= 9:  # 3 full sweeps all failing
-            notify("Seat watcher: OSCAR unreachable",
-                   "Three straight sweeps failed from GitHub Actions. "
-                   "OSCAR may be down or blocking the runner.",
-                   priority="high", tags="warning")
-            failures = 0
+        # Outage alert: only after ~3 full sweeps all failing, then at most
+        # MAX_DOWN_ALERTS per outage (the 2nd one DOWN_REMINDER_SECONDS later).
+        # `failures` only resets on a successful fetch, so a long outage does
+        # not re-alert every few minutes.
+        if failures >= DOWN_ALERT_AFTER_FAILURES:
+            t = time.time()
+            if down_alerts == 0 or (
+                    down_alerts < MAX_DOWN_ALERTS
+                    and t - last_down_alert >= DOWN_REMINDER_SECONDS):
+                notify("GT seat watcher is down",
+                       "Can't reach OSCAR (registration.banner.gatech.edu) "
+                       "from GitHub Actions. No seat coverage until it "
+                       "recovers.",
+                       priority="high", tags="warning")
+                down_alerts += 1
+                last_down_alert = t
+                down_notified = True
 
         # Heartbeat to the external dead-man's switch. One transient fetch
         # error is not an outage - only escalate to /fail after 3 consecutive
