@@ -1,0 +1,42 @@
+name: diagnose
+# One-off: figure out why Banner is dropping requests from GitHub runners.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Runner egress IP
+        run: curl -sS -m 10 https://api.ipify.org; echo
+      - name: DNS
+        run: getent hosts registration.banner.gatech.edu oscar.gatech.edu || true
+      - name: 1. Current request shape (POST getEnrollmentInfo, no cookies)
+        run: |
+          curl -sS -m 25 -o /tmp/r1.html -w "http=%{http_code} size=%{size_download} t=%{time_total}\n" \
+            -X POST -H "X-Requested-With: XMLHttpRequest" \
+            -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36" \
+            -d "term=202702&courseReferenceNumber=29737" \
+            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo" || echo "curl exit $?"
+          head -c 300 /tmp/r1.html; echo
+      - name: 2. Same, forced HTTP/1.1 verbose
+        run: |
+          curl -sS -v --http1.1 -m 25 -o /dev/null \
+            -X POST -d "term=202702&courseReferenceNumber=29737" \
+            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo" 2>&1 | tail -25 || true
+      - name: 3. Session first (termSelection cookie), then POST
+        run: |
+          UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+          curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /dev/null -w "termSelection http=%{http_code}\n" \
+            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/term/termSelection?mode=search" || echo "curl exit $?"
+          curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /tmp/r3.html -w "getEnrollmentInfo http=%{http_code} size=%{size_download}\n" \
+            -X POST -H "X-Requested-With: XMLHttpRequest" \
+            -d "term=202702&courseReferenceNumber=29737" \
+            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo" || echo "curl exit $?"
+          head -c 300 /tmp/r3.html; echo
+      - name: 4. Is the host reachable at all (GET root) and the old OSCAR page?
+        run: |
+          curl -sS -m 20 -o /dev/null -w "banner root http=%{http_code}\n" https://registration.banner.gatech.edu/ || echo "banner root curl exit $?"
+          curl -sS -m 20 -o /dev/null -w "oscar http=%{http_code}\n" https://oscar.gatech.edu/ || echo "oscar curl exit $?"
