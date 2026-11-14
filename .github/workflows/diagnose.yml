@@ -8,35 +8,30 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash {0}   # no -e: every probe runs even if one fails
     steps:
-      - name: Runner egress IP
-        run: curl -sS -m 10 https://api.ipify.org; echo
-      - name: DNS
-        run: getent hosts registration.banner.gatech.edu oscar.gatech.edu || true
-      - name: 1. Current request shape (POST getEnrollmentInfo, no cookies)
-        run: |
-          curl -sS -m 25 -o /tmp/r1.html -w "http=%{http_code} size=%{size_download} t=%{time_total}\n" \
-            -X POST -H "X-Requested-With: XMLHttpRequest" \
-            -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36" \
-            -d "term=202702&courseReferenceNumber=29737" \
-            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo" || echo "curl exit $?"
-          head -c 300 /tmp/r1.html; echo
-      - name: 2. Same, forced HTTP/1.1 verbose
-        run: |
-          curl -sS -v --http1.1 -m 25 -o /dev/null \
-            -X POST -d "term=202702&courseReferenceNumber=29737" \
-            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo" 2>&1 | tail -25 || true
-      - name: 3. Session first (termSelection cookie), then POST
+      - name: Probe matrix
         run: |
           UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
-          curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /dev/null -w "termSelection http=%{http_code}\n" \
-            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/term/termSelection?mode=search" || echo "curl exit $?"
-          curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /tmp/r3.html -w "getEnrollmentInfo http=%{http_code} size=%{size_download}\n" \
-            -X POST -H "X-Requested-With: XMLHttpRequest" \
-            -d "term=202702&courseReferenceNumber=29737" \
-            "https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo" || echo "curl exit $?"
-          head -c 300 /tmp/r3.html; echo
-      - name: 4. Is the host reachable at all (GET root) and the old OSCAR page?
-        run: |
-          curl -sS -m 20 -o /dev/null -w "banner root http=%{http_code}\n" https://registration.banner.gatech.edu/ || echo "banner root curl exit $?"
-          curl -sS -m 20 -o /dev/null -w "oscar http=%{http_code}\n" https://oscar.gatech.edu/ || echo "oscar curl exit $?"
+          B=https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb
+          echo "egress IP: $(curl -sS -m 10 https://api.ipify.org)"
+          p() { echo; echo "### $1"; shift; "$@" 2>&1 | tail -${TAILN:-6}; }
+          p "A. GET banner root"            curl -sS -m 20 -o /dev/null -w "http=%{http_code} t=%{time_total}\n" https://registration.banner.gatech.edu/
+          p "B. GET oscar root"             curl -sS -m 20 -o /dev/null -w "http=%{http_code} t=%{time_total}\n" https://oscar.gatech.edu/
+          p "C. GET termSelection (UA)"     curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /dev/null -w "http=%{http_code} t=%{time_total}\n" "$B/term/termSelection?mode=search"
+          p "D. POST getEnrollmentInfo, session cookie + UA" curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -X POST -H "X-Requested-With: XMLHttpRequest" -d "term=202702&courseReferenceNumber=29737" -w "\nhttp=%{http_code} t=%{time_total}\n" "$B/searchResults/getEnrollmentInfo"
+          p "E. POST getEnrollmentInfo, bare"  curl -sS -m 25 -X POST -d "term=202702&courseReferenceNumber=29737" -w "\nhttp=%{http_code} t=%{time_total}\n" "$B/searchResults/getEnrollmentInfo"
+          p "F. GET getTerms (session)"     curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -w "\nhttp=%{http_code}\n" "$B/classSearch/getTerms?searchTerm=&offset=1&max=3"
+          TAILN=20 p "G. verbose handshake, HTTP/1.1" curl -sv --http1.1 -m 20 -o /dev/null "https://registration.banner.gatech.edu/"
+          TAILN=20 p "H. python urllib same as watcher" python3 - <<'PY'
+        import urllib.request, urllib.parse
+        req = urllib.request.Request("https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo",
+            data=urllib.parse.urlencode({"term":"202702","courseReferenceNumber":"29737"}).encode(),
+            headers={"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36","X-Requested-With":"XMLHttpRequest"})
+        try:
+            r = urllib.request.urlopen(req, timeout=25); print(r.status, r.read()[:200])
+        except Exception as e: print("ERR", repr(e))
+        PY
+          exit 0
