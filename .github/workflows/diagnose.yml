@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        shell: bash {0}   # no -e: every probe runs even if one fails
+        shell: bash {0}
     steps:
       - name: Probe matrix
         run: |
@@ -18,20 +18,12 @@ jobs:
           B=https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb
           echo "egress IP: $(curl -sS -m 10 https://api.ipify.org)"
           p() { echo; echo "### $1"; shift; "$@" 2>&1 | tail -${TAILN:-6}; }
-          p "A. GET banner root"            curl -sS -m 20 -o /dev/null -w "http=%{http_code} t=%{time_total}\n" https://registration.banner.gatech.edu/
-          p "B. GET oscar root"             curl -sS -m 20 -o /dev/null -w "http=%{http_code} t=%{time_total}\n" https://oscar.gatech.edu/
-          p "C. GET termSelection (UA)"     curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /dev/null -w "http=%{http_code} t=%{time_total}\n" "$B/term/termSelection?mode=search"
+          p "A. GET banner root" curl -sS -m 20 -o /dev/null -w "http=%{http_code} t=%{time_total}\n" https://registration.banner.gatech.edu/
+          p "B. GET oscar root" curl -sS -m 20 -o /dev/null -w "http=%{http_code} t=%{time_total}\n" https://oscar.gatech.edu/
+          p "C. GET termSelection (UA)" curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -o /dev/null -w "http=%{http_code} t=%{time_total}\n" "$B/term/termSelection?mode=search"
           p "D. POST getEnrollmentInfo, session cookie + UA" curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -X POST -H "X-Requested-With: XMLHttpRequest" -d "term=202702&courseReferenceNumber=29737" -w "\nhttp=%{http_code} t=%{time_total}\n" "$B/searchResults/getEnrollmentInfo"
-          p "E. POST getEnrollmentInfo, bare"  curl -sS -m 25 -X POST -d "term=202702&courseReferenceNumber=29737" -w "\nhttp=%{http_code} t=%{time_total}\n" "$B/searchResults/getEnrollmentInfo"
-          p "F. GET getTerms (session)"     curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -w "\nhttp=%{http_code}\n" "$B/classSearch/getTerms?searchTerm=&offset=1&max=3"
-          TAILN=20 p "G. verbose handshake, HTTP/1.1" curl -sv --http1.1 -m 20 -o /dev/null "https://registration.banner.gatech.edu/"
-          TAILN=20 p "H. python urllib same as watcher" python3 - <<'PY'
-        import urllib.request, urllib.parse
-        req = urllib.request.Request("https://registration.banner.gatech.edu/StudentRegistrationSsb/ssb/searchResults/getEnrollmentInfo",
-            data=urllib.parse.urlencode({"term":"202702","courseReferenceNumber":"29737"}).encode(),
-            headers={"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36","X-Requested-With":"XMLHttpRequest"})
-        try:
-            r = urllib.request.urlopen(req, timeout=25); print(r.status, r.read()[:200])
-        except Exception as e: print("ERR", repr(e))
-        PY
+          p "E. POST getEnrollmentInfo, bare" curl -sS -m 25 -X POST -d "term=202702&courseReferenceNumber=29737" -w "\nhttp=%{http_code} t=%{time_total}\n" "$B/searchResults/getEnrollmentInfo"
+          p "F. GET getTerms (session)" curl -sS -m 25 -A "$UA" -c /tmp/j -b /tmp/j -w "\nhttp=%{http_code}\n" "$B/classSearch/getTerms?searchTerm=&offset=1&max=3"
+          TAILN=20 p "G. verbose handshake, HTTP/1.1" curl -sv --http1.1 -m 20 -o /dev/null https://registration.banner.gatech.edu/
+          TAILN=4 p "H. python urllib like the watcher" python3 -c "import urllib.request as u,urllib.parse as q;r=u.urlopen(u.Request('$B/searchResults/getEnrollmentInfo',data=q.urlencode({'term':'202702','courseReferenceNumber':'29737'}).encode(),headers={'User-Agent':'Mozilla/5.0','X-Requested-With':'XMLHttpRequest'}),timeout=25);print(r.status,r.read()[:200])"
           exit 0
